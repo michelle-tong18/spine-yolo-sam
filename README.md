@@ -301,7 +301,7 @@ python -m pytest
 
 ## Citation
 
-If you use this code, please cite the associated manuscript (submitted; reference added on publication).
+Tong MW, et al. An automated detect-then-segment framework for scalable tissue segmentation and quantification of multi-site lumbar spine MRI. Sci Rep, (2026). doi:[10.1038/s41598-026-81955-3](https://doi.org/10.1038/s41598-026-81955-3)
 
 ## License
 

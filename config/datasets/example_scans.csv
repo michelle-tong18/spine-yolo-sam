@@ -1,0 +1,4 @@
+subject_id,accession,image
+case01,T2sag,/path/to/case01/T2_sagittal_dicom_folder
+case01,T1sag,/path/to/case01/T1_sagittal_dicom_folder
+case02,T2sag,/path/to/case02/t2_sagittal.nii.gz

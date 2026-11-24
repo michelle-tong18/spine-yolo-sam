@@ -1,0 +1,250 @@
+## Sagittal vertebra / disc / spinal canal / facet example (label map of the released sagittal model)
+## Copy this file, set paths, then:
+##   python src/run_pipeline.py example_sagittal_vertdisc --build-dataset --finetune both
+##   python src/inference/run_inference.py both --config example_sagittal_vertdisc
+##   python src/evaluation/run_evaluation.py example_sagittal_vertdisc --run /path/to/output_data_dir/inference/example_sagittal_vertdisc/Run_1
+##
+## Keys by step:
+##   build  -> data_dir, image_column, mask_column, output_dir, preprocessing_cfg, mask_labels
+##   split  -> split_id, general_data_dir, mask_labels
+##   train  -> YOLO (work_dir/yolo/<project>/), SAM (work_dir/sam/<task_name>/)
+##   infer  -> output_data_dir, inference.volume_dir, inference.task_name, inference.models (obj_det.postprocess)
+##   eval   -> evaluation.gt_labels_dir, evaluation.gt_masks_dir (required to score)
+
+SEED: 42
+
+dataset:
+  name: example_sagittal_vertdisc
+  description: "Sagittal lumbar MRI with vertebra, disc, spinal canal and facet labels"
+
+general_data_dir: /path/to/your/working/dir   # preprocess/train data root; used to interpolate other paths
+work_dir: work_dir                            # training output root (relative to repo cwd)
+output_data_dir: ${general_data_dir}/results  # required for infer; writes inference/{task_name}/Run_N
+data_dir: ${general_data_dir}/mri_masterlist.csv
+image_column: image
+mask_column: segs_vert_disc
+include_subject_accession: True
+output_dir: ${general_data_dir}               # preprocess writes nifti_preprocessed/ and slice_preprocessed/ here
+overwrite_existing_flag: False
+
+mask_labels: &mask_labels
+  0: background
+  1: L5
+  2: L4-L5
+  3: L4
+  4: L3-L4
+  5: L3
+  6: L2-L3
+  7: L2
+  8: L1-L2
+  9: L1
+  10: T12-L1
+  11: T12
+  12: L5-S1
+  13: S1
+  14: T11-T12
+  15: T11
+  16: T10-T11
+  17: T10
+  18: T9-T10
+  19: T9
+  20: spinal_canal
+  21: L5_facet
+  22: L4_facet
+  23: L3_facet
+  24: L2_facet
+  25: L1_facet
+  26: T12_facet
+  27: T11_facet
+  28: T10_facet
+  29: T9_facet
+  30: S2
+
+image_config:
+  transforms:
+    percentile: 99
+    normalize: np.uint16
+    dtype: np.uint16
+  data_properties:
+    finite_values: True
+    type: uint16
+    smallest_dim: 0
+
+mask_config:
+  transforms:
+    dtype: np.uint32
+  data_properties:
+    finite_values: True
+    type: uint32
+    smallest_dim: 0
+
+preprocessing_cfg:
+  image_size: 1024
+  voxel_num_thre2d: 50
+  voxel_num_thre3d: 200
+  remove_label_ids: []
+  crop_non_zero_slices_flag: True
+  instance_bbox: False
+  make_square: True
+  ratio_resize: False
+  slice_normalization: False
+  yolo_relabel:
+  add_sampling: 0.0
+  # pixel_spacing_mm: [3.0, 0.5, 0.5]  # [slice, row, col] mm, used only when a scan's header has no spacing
+
+# Preprocessing QC figures for scans with a mask: the image with its mask (nifti_preprocessed/fig/<volume>.png) and the
+# YOLO training boxes (slice_preprocessed/SAM/figs/<volume>.png). Leave fig_type empty to skip them.
+nifti_fig_cfg:
+  fig_type: 2D_overlay
+
+split_id: example_sagittal_vertdisc
+split_accession: True
+
+inference:
+  volume_dir: ${general_data_dir}/nifti_preprocessed/img  # or an absolute path to a new cohort
+  task_name: ${SAM.experiment.name}
+  device: cuda
+  output_ext: nii.gz
+  imgsz: 1024
+  mask_labels: *mask_labels
+  models:
+    obj_det:
+      model_path: weights/spine-yolo-sam  # released model (README: Install); your own: work_dir/yolo/example-sagittal-vertdisc/runs/weights + best.pt
+      model_weights: yolo_sagittal_v1.pt
+      single_cls: False
+      conf: 0.2
+      iou: 0.75
+      remove_label_ids: []
+      ignore_label_ids: []
+      subtract_label_ids: []
+      priority_label_ids: []
+      det_limit: {1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1, 12: 1, 13: 1, 14: 1, 15: 1, 16: 1, 17: 1, 18: 1, 19: 1, 20: 1, 21: 1, 22: 1, 23: 1, 24: 1, 25: 1, 26: 1, 27: 1, 28: 1, 29: 1}
+      # Released sagittal model: relevel (below) on, gap fill off (it lowered label-level F1 on validation).
+      postprocess:
+        enabled: false
+        type: sagittal_spine
+        gap_fill:
+          enabled: false
+          max_gap_slices: 8
+          anchor: largest_area
+      # One label per physical level through the volume (src/yolo_finetuning/postprocess_volume_3d/relevel.py).
+      # Runs on raw YOLO boxes before gap fill and det_limit. Chains: cranial → caudal class order;
+      # tracks never mix tissues; anchor levels count anchor_weight x in the level vote. Vertebrae + discs only:
+      # facets (lateral slices, drifting columns, unmatched left / right sides) keep YOLO's labels.
+      relevel:
+        enabled: true
+        anchor_weight: 2.0
+        max_link_gap: 2        # slices a track may skip between two boxes
+        link_y_tol: 0.75       # |Δ y-centre| allowed when linking, in box heights
+        merge_y_tol: 0.5       # |Δ median y| allowed when merging gap-split tracks, in box heights
+        skip_penalty: 0.5      # per skipped level, in median track weights
+        unassigned_penalty: 1.0  # per track left without a level, in anchor_weight x its weight
+        dup_y_iou: 0.5         # same-tissue boxes on one slice overlapping this much in y are one structure
+        max_column_shift: 1.0  # whole-column shift between slices removed before linking, in box heights
+        chains:
+          vertebrae_discs:
+            order: [19, 18, 17, 16, 15, 14, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 12, 13]
+            tissues:
+              vertebrae: [19, 17, 15, 11, 9, 7, 5, 3, 1, 13]
+              discs: [18, 16, 14, 10, 8, 6, 4, 2, 12]
+            anchor_class_ids: [1, 12, 13]   # L5, L5-S1, S1
+    segmentation:
+      base_model: weights/SAM/sam_vit_b_01ec64.pth
+      model_path: weights/spine-yolo-sam  # released model; your own: work_dir/sam/example_sagittal_vertdisc/SAM/Run_1 + <run_id>_finetuned_model_best.pth
+      model_weights: sam_sagittal_v1.pth
+      model_type: vit_b
+
+# Disc measurements from the predicted segmentations, after inference (src/measurements/run_measurements.py):
+#   python src/measurements/run_measurements.py example_sagittal_vertdisc --run-dir RUN --metrics discs,volumes
+measurements:
+  mid_slices: 3   # slices centred on the one with the largest canal area; each measurement is their median
+  levels: [T12-L1, L1-L2, L2-L3, L3-L4, L4-L5, L5-S1]
+
+evaluation:
+  gt_labels_dir: ${general_data_dir}/slice_preprocessed/YOLO/test/labels
+  gt_masks_dir: ${general_data_dir}/nifti_preprocessed/mask
+  iou_thresholds: [0.5]
+  # Each group's labels are merged into one class for the tissue-level breakdown ("all_tissues" is added automatically).
+  tissue_groups:
+    vertebrae: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
+    discs: [2, 4, 6, 8, 10, 12, 14, 16, 18]
+    facets: [21, 22, 23, 24, 25, 26, 27, 28, 29]
+    spinal_canal: [20]
+
+SAM:
+  distributed: False
+  experiment:
+    name: example_sagittal_vertdisc
+    pretrained_weights: SAM
+    description: "SAM finetuning on sagittal vertebra/disc slices"
+  datamodule:
+    bbox_shift: 0
+    batch_size: 1
+    num_workers: 1
+  module:
+    work_dir: ${work_dir}/sam  # runs: work_dir/sam/<task_name>/<group_name>/Run_N
+    pretrain_model: weights/SAM/sam_vit_b_01ec64.pth
+    # Continue from a prior SAM run: its finetuned weights (pretrain_model stays the SAM base checkpoint)
+    # model_path: ${work_dir}/sam/example_sagittal_vertdisc/SAM/Run_1
+    # model_weights: <run_id>_finetuned_model_best.pth
+    trainable:
+      prompt_encoder: False
+      image_encoder: True
+      mask_decoder: True
+    task_name: ${SAM.experiment.name}  # <sam_project>
+    group_name: ${SAM.experiment.pretrained_weights}
+    model_type: vit_b
+    use_wandb: False
+    visualize: False
+    num_epochs: 250  # continue-from-run: 80
+    optimizer:
+      weight_decay: 0.01
+      lr: 0.0001  # continue-from-run: 0.00001
+    use_amp: True
+    clip_grad: 1.0
+    grad_accum: 4
+    early_stopping:
+      enabled: True
+      patience: 10  # continue-from-run: 8
+      min_delta: 0.0001
+  output_configuration:
+    save_path: Run_Summaries
+    logging_level: INFO
+
+YOLO:
+  # Official vendor init (active). To continue from a prior finetune, comment
+  # `model` / epochs / patience / lr0 below and uncomment the continue-from-run lines.
+  model: weights/YOLO/yolo26x.pt
+  # model: ${work_dir}/yolo/example-sagittal-vertdisc/runs/weights/best.pt
+  model_type: YOLO
+  train_cfg: YOLO_default_cfg
+  data_yaml: ${general_data_dir}/slice_preprocessed/YOLO/yolo_data.yaml
+  yolo_output_dir: ${work_dir}/yolo  # training writes work_dir/yolo/<project>/
+  yolo_parameters:
+    pretrained: True
+    batch: 8
+    epochs: 100
+    # epochs: 40
+    project: example-sagittal-vertdisc  # Ultralytics project; writes to {yolo_output_dir}/{project}/
+    name: runs                          # Ultralytics run name; writes to {yolo_output_dir}/{project}/{name}/
+    resume: False
+    patience: 50
+    # patience: 15
+    optimizer: auto
+    seed: 0
+    amp: True
+    lr0: 0.01
+    # lr0: 0.001
+    lrf: 0.01
+    box: 7.5
+    cls: 0.5
+    dfl: 1.5
+    hsv_s: 0.5
+    hsv_v: 0.5
+    degrees: 10
+    translate: 0.1
+    scale: 0.1
+    fliplr: 0.0
+    flipud: 0.0
+    mosaic: 0.0
+    mixup: 0.0

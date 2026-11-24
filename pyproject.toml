@@ -1,0 +1,14 @@
+[project]
+name = "spine-yolo-sam"
+version = "0.1.0"
+description = "YOLO + SAM pipeline for spine MRI detection and segmentation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

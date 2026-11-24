@@ -1,0 +1,44 @@
+# Secrets and local env
+.env
+.env.*
+*.env
+scripts/my_vars.env
+scripts/train_yolo.env
+!scripts/examples/*.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# macOS
+.DS_Store
+._*
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Training / inference outputs
+work_dir/
+samples/outputs/
+logs/
+wandb/
+runs/
+Run_Summaries/
+
+# Model weights and local data (users supply their own)
+weights/**/*.pt
+weights/**/*.pth
+weights/**/*.ckpt
+*.pt
+*.pth
+data/
+!samples/data/
+work_dir/
+
+# Editors
+.vscode/

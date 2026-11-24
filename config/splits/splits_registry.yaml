@@ -1,0 +1,15 @@
+# Split registry: train/val/test subject IDs shared across train, infer filters, and eval.
+# Reference from a dataset config with:   split_id: <key>
+#
+# IDs must match volume filenames without the .nii.gz extension.
+# evaluation uses the test list; inference.valid_list (optional) can further filter volumes.
+
+example_axial_muscle:
+  train: [subj01, subj02, subj03]
+  val: [subj04]
+  test: [subj05]
+
+example_sagittal_vertdisc:
+  train: [subj01, subj02, subj03]
+  val: [subj04]
+  test: [subj05]

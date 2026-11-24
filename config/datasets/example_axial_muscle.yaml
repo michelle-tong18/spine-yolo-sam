@@ -1,0 +1,206 @@
+## Axial paraspinal muscle example
+## Copy this file, set paths, then:
+##   python src/run_pipeline.py example_axial_muscle --build-dataset --finetune both
+##   python src/inference/run_inference.py both --config example_axial_muscle
+##   python src/evaluation/run_evaluation.py example_axial_muscle --run /path/to/output_data_dir/inference/example_axial_muscle/Run_1
+##
+## Keys by step:
+##   build  -> data_dir, image_column, mask_column, output_dir, preprocessing_cfg, mask_labels
+##   split  -> split_id, general_data_dir, mask_labels
+##   train  -> YOLO (work_dir/yolo/<project>/), SAM (work_dir/sam/<task_name>/)
+##   infer  -> output_data_dir, inference.volume_dir, inference.task_name, inference.models
+##   eval   -> evaluation.gt_labels_dir, evaluation.gt_masks_dir (required to score)
+
+# ------------------ PARAMS FOR ALL ------------------
+SEED: 42
+
+dataset:
+  name: example_axial_muscle
+  description: "Axial lumbar MRI with paraspinal muscle labels"
+
+general_data_dir: /path/to/your/working/dir   # preprocess/train data root; used to interpolate other paths
+work_dir: work_dir                            # training output root (relative to repo cwd)
+output_data_dir: ${general_data_dir}/results  # required for infer; writes inference/{task_name}/Run_N
+data_dir: ${general_data_dir}/mri_masterlist.csv
+image_column: image
+mask_column: segs_muscle
+include_subject_accession: True
+output_dir: ${general_data_dir}               # preprocess writes nifti_preprocessed/ and slice_preprocessed/ here
+overwrite_existing_flag: False
+
+# When you want to force processing of all files as DICOM - needed for DICOM files that lack extension
+no_dicom_extension_flag: True
+
+# details about your dataset:
+mask_labels: &mask_labels
+  0: background
+  1: muscle_multifidus_r
+  2: muscle_multifidus_l
+  3: muscle_psoas_r
+  4: muscle_psoas_l
+  5: muscle_quadratus_lumborum_r
+  6: muscle_quadratus_lumborum_l
+  7: muscle_erector_spinae_r
+  8: muscle_erector_spinae_l
+
+image_config:
+  transforms:
+    percentile: 99
+    normalize: np.uint16
+    dtype: np.uint16
+  data_properties:
+    finite_values: True
+    type: uint16
+    smallest_dim: 0
+
+mask_config:
+  transforms:
+    # transpose: [2, 0, 1]
+    dtype: np.uint32
+  data_properties:
+    finite_values: True
+    type: uint32
+    smallest_dim: 0
+
+preprocessing_cfg:
+  image_size: 1024
+  voxel_num_thre2d: 50
+  voxel_num_thre3d: 200
+  remove_label_ids: [] # No labels to remove in this configuration
+  crop_non_zero_slices_flag: True
+  instance_bbox: False
+  make_square: True
+  ratio_resize: False
+  slice_normalization: False
+  yolo_relabel: # Dictionary of labels to relabel for YOLO, i.e. {old_label_id: new_label_id}
+  add_sampling: 0.0 # Sample of all slices to include after cropping non-zero slices [floating number 0-1]
+  # pixel_spacing_mm: [3.0, 0.5, 0.5]  # [slice, row, col] mm, used only when a scan's header has no spacing
+
+# Preprocessing QC figures for scans with a mask: the image with its mask (nifti_preprocessed/fig/<volume>.png) and the
+# YOLO training boxes (slice_preprocessed/SAM/figs/<volume>.png). Leave fig_type empty to skip them.
+nifti_fig_cfg:
+  fig_type: 2D_overlay
+
+split_id: example_axial_muscle
+split_accession: True
+
+inference:
+  volume_dir: ${general_data_dir}/nifti_preprocessed/img  # or an absolute path to a new cohort
+  task_name: ${SAM.experiment.name}
+  device: cuda
+  output_ext: nii.gz
+  imgsz: 1024
+  mask_labels: *mask_labels
+  models:
+    obj_det:
+      model_path: weights/spine-yolo-sam  # released model (README: Install); your own: work_dir/yolo/example-axial-muscle/runs/weights + best.pt
+      model_weights: yolo_axial_muscle_v1.pt
+      single_cls: False
+      conf: 0.4
+      iou: 0.75
+      remove_label_ids: []
+      ignore_label_ids: []
+      subtract_label_ids: []
+      priority_label_ids: []
+      det_limit: {1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1}
+      # Released axial model: gap fill only (max_gap_slices chosen on validation from 2 / 4 / 6 / 8).
+      postprocess:
+        enabled: true
+        type: axial_spine_muscle
+        gap_fill:
+          enabled: true
+          max_gap_slices: 4
+          anchor: largest_area
+    segmentation:
+      base_model: weights/SAM/sam_vit_b_01ec64.pth
+      model_path: weights/spine-yolo-sam  # released model; your own: work_dir/sam/example_axial_muscle/SAM/Run_1 + <run_id>_finetuned_model_best.pth
+      model_weights: sam_axial_muscle_v1.pth
+      model_type: vit_b
+
+evaluation:
+  gt_labels_dir: ${general_data_dir}/slice_preprocessed/YOLO/test/labels
+  gt_masks_dir: ${general_data_dir}/nifti_preprocessed/mask
+  iou_thresholds: [0.5]
+  # Each group's labels are merged into one class for the tissue-level breakdown ("all_tissues" is added automatically).
+  tissue_groups:
+    multifidus: [1, 2]
+    psoas: [3, 4]
+    quadratus_lumborum: [5, 6]
+    erector_spinae: [7, 8]
+
+SAM:
+  distributed: False
+  experiment:
+    name: example_axial_muscle
+    pretrained_weights: SAM
+    description: "SAM finetuning on axial paraspinal muscle slices"
+  datamodule:
+    bbox_shift: 0
+    batch_size: 1
+    num_workers: 1
+  module:
+    work_dir: ${work_dir}/sam  # runs: work_dir/sam/<task_name>/<group_name>/Run_N
+    pretrain_model: weights/SAM/sam_vit_b_01ec64.pth
+    # Continue from a prior SAM run: its finetuned weights (pretrain_model stays the SAM base checkpoint)
+    # model_path: ${work_dir}/sam/example_axial_muscle/SAM/Run_1
+    # model_weights: <run_id>_finetuned_model_best.pth
+    trainable:
+      prompt_encoder: False
+      image_encoder: True
+      mask_decoder: True
+    task_name: ${SAM.experiment.name}  # <sam_project>
+    group_name: ${SAM.experiment.pretrained_weights}
+    model_type: vit_b
+    use_wandb: False
+    visualize: False
+    num_epochs: 250  # continue-from-run: 80
+    optimizer:
+      weight_decay: 0.01
+      lr: 0.0001  # continue-from-run: 0.00001
+    use_amp: True
+    clip_grad: 1.0
+    grad_accum: 4
+    early_stopping:
+      enabled: True
+      patience: 10  # continue-from-run: 8
+      min_delta: 0.0001
+  output_configuration:
+    save_path: Run_Summaries
+    logging_level: INFO
+
+YOLO:
+  # Official vendor init (active). To continue from a prior finetune, comment
+  # `model` / epochs / patience / lr0 below and uncomment the continue-from-run lines.
+  model: weights/YOLO/yolo26x.pt
+  # model: ${work_dir}/yolo/example-axial-muscle/runs/weights/best.pt
+  model_type: YOLO
+  train_cfg: YOLO_default_cfg
+  data_yaml: ${general_data_dir}/slice_preprocessed/YOLO/yolo_data.yaml
+  yolo_output_dir: ${work_dir}/yolo  # training writes work_dir/yolo/<project>/
+  yolo_parameters:
+    pretrained: True
+    batch: 8
+    epochs: 100
+    # epochs: 40
+    project: example-axial-muscle  # Ultralytics project; writes to {yolo_output_dir}/{project}/
+    name: runs                     # Ultralytics run name; writes to {yolo_output_dir}/{project}/{name}/
+    resume: False
+    patience: 50
+    # patience: 15
+    optimizer: auto
+    seed: 0
+    amp: True
+    lr0: 0.01
+    # lr0: 0.001
+    lrf: 0.01
+    box: 7.5
+    cls: 0.5
+    dfl: 1.5
+    hsv_s: 0.5
+    hsv_v: 0.5
+    degrees: 10
+    translate: 0.1
+    scale: 0.1
+    fliplr: 0.0
+    mosaic: 0.0
+    mixup: 0.0

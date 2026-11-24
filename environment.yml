@@ -1,0 +1,11 @@
+# Captured from conda env py_env_MskYolo26Sam.
+# Pip packages come from requirements.txt (CUDA 12.8 PyTorch).
+name: spine-yolo-sam
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12.12
+  - pip
+  - pip:
+      - -r requirements.txt

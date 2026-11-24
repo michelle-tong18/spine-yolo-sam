@@ -1,0 +1,35 @@
+# Pinned from conda env py_env_MskYolo26Sam (Python 3.12.12).
+# CUDA 12.8 PyTorch wheels; pip will also consult PyPI for other packages.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# Core
+numpy==2.2.6
+pandas==2.3.3
+pyyaml==6.0.3
+tqdm==4.67.1
+pillow==11.3.0
+pyrootutils==1.0.4
+python-dotenv==1.2.1
+
+# Imaging / IO
+nibabel==5.3.3
+pydicom==3.0.1
+SimpleITK==2.5.3
+opencv-python==4.12.0.88
+connected-components-3d==3.26.1
+scikit-image==0.26.0
+scipy==1.16.3
+matplotlib==3.10.8
+albumentations==2.0.8
+python-gdcm==3.2.2
+gdcm==1.1
+
+# Deep learning
+torch==2.9.1+cu128
+torchvision==0.24.1+cu128
+ultralytics==8.4.37
+segment-anything @ git+https://github.com/facebookresearch/segment-anything.git@dca509fe793f601edb92606367a655c15ac00fdf
+monai==1.5.2
+
+# Logging (SAM training + YOLO sweeps)
+wandb==0.23.1
